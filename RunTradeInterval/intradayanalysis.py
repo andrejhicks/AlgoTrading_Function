@@ -437,7 +437,10 @@ def createtable(df,ticker):
 def main(mytimer: func.TimerRequest) -> None:
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
-    requests.post(f'{funcurl}?&code={funckey}==',timeout=1)
+    try:
+        requests.post(f'{funcurl}?&code={funckey}==',timeout=1)
+    except:
+        pass
     currtime=datetime.now(EST)
     logging.info(currtime)
     hour = currtime.hour
