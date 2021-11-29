@@ -462,6 +462,6 @@ def main(mytimer: func.TimerRequest) -> None:
     dd.cnxn.close()
 
 # passkey='test'
-dd=importmarketdata()
+# dd=importmarketdata()
 # dd.update_intraday_iex()
-create_model()
+# create_model()
