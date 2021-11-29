@@ -1,0 +1,11 @@
+{
+  "scriptFile": "intradayanalysis.py",
+  "bindings": [
+    {
+      "name": "mytimer",
+      "type": "timerTrigger",
+      "direction": "in",
+      "schedule": "0 0/30 9-16 * * 1-5"
+    }
+  ]
+}
