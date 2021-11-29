@@ -450,7 +450,9 @@ def main(mytimer: func.TimerRequest) -> None:
         #Initialize Brokerage API conncection
     elif requests.get('https://cloud.iexapis.com/stable/stock/twtr/quote?token={}'.format(os.environ.get("IEXProdKey"))).json()['isUSMarketOpen'] or (hour==15 and min < 25):
         dd=importmarketdata()
+        logging.info("Updating Data")
         dd.update_intraday_iex()
+        logging.info("Finished Update, Moving to Models")
         create_model()
     else:
         print('Market Closed')
