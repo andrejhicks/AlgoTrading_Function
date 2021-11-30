@@ -36,7 +36,7 @@ def runtrades(key):
     #Check for equities to sell
     for ticker in openpositions:
         #trigger sell if the predicted growth goes below 0
-        if predictions.at[ticker[0],'PredictedGrowth']<=0:
+        if predictions.at[ticker[0],'PredictedGrowth']<=0 or predictions.at[ticker[0],'PredictedGrowth']==None:
             api.submit_order(symbol=ticker,qty=ticker[1],side="sell")
 
     #if available balance is <10% of total porfolio balance, trigger trades
