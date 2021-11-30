@@ -13,7 +13,7 @@ import numpy as np
 from sklearn import preprocessing
 import pyodbc
 import requests
-from azure.storage.blob import BlobClient
+from azure.storage.blob import BlobClient,BlobServiceClient
 load_dotenv()
 import tempfile
 import azure.functions as func
@@ -88,7 +88,7 @@ class importmarketdata():
             token=os.environ.get('IEXTestKey')
             base_url = 'https://sandbox.iexapis.com/stable'
         else:
-            self.startdate=self.startdate+day_delta#datetime.strptime(self.startdate,'%Y-%m-%d').date()+day_delta
+            self.startdate=self.startdate#datetime.strptime(self.startdate,'%Y-%m-%d').date()+day_delta
             token=os.environ.get('IEXProdKey')
             base_url = 'https://cloud.iexapis.com/v1'
         
@@ -137,7 +137,7 @@ class importmarketdata():
                         cl = timefromopen-charted*30
                 else:
                     cl=400
-                if t%90==0:
+                if t%50==0:
                     params={'token': token,\
                             'symbols':evaltickers[1:], \
                             'types':'chart',\
@@ -162,9 +162,9 @@ class importmarketdata():
 
             with concurrent.futures.ThreadPoolExecutor(6) as executor:
                 executor.map(self.import_iex_data,urllist,request_array)
-            load_iex=self.load_iex
-            print(load_iex.shape)
+            load_iex=self.load_iex.copy()
             del self.load_iex
+            
             load_iex.reset_index(inplace=True)
             if load_iex.empty:
                 continue
@@ -180,7 +180,8 @@ class importmarketdata():
                     df=load_iex.loc[idx[i,:],:].copy()
                 except:
                     continue
-          
+                if df['Volume'].sum(skipna=True)==0:
+                    continue
                 df.sort_values(by='minute',ascending=True,inplace=True)
                 for t in range(math.floor(interval/30)):
                     a=self.starttime+t*time_step
@@ -208,7 +209,6 @@ class importmarketdata():
                     tickerdf=pd.concat([tickerdf,new_data],ignore_index=True)
 
             tickerdf.fillna(0,inplace=True)
-            
             query=f"INSERT INTO {self.hourtbl} (Ticker,DateIndex,High,Low,Close_,Open_,Volume) VALUES "
             queryarray=[]
             if tickerdf.empty:
@@ -218,16 +218,18 @@ class importmarketdata():
                 # print(t)
                 query=query + """('{}','{}',{},{},{},{},{}),""".format(t.Ticker,t.DateIndex,t.high,t.low,t.open,t.close,t.volume)
 
-                if count%1000==0 and count>0:
+                if count%500==0 and count>0:
                     queryarray.append(query[:-1])
                     query=f"INSERT INTO {self.hourtbl} (Ticker,DateIndex,High,Low,Close_,Open_,Volume) VALUES "
             queryarray.append(query[:-1])
             if len(queryarray)>0:
                 for count,q in enumerate(queryarray):
                     self.cursor.execute(q.replace('nan','0'))
-                    if passkey=='prod':
-                        self.cnxn.commit()
-
+                    print(len(q))
+                    print(count)
+            if passkey=='prod':
+                self.cnxn.commit()
+            
         return #tickerdata
 
 class npanalysis():
@@ -242,8 +244,10 @@ class npanalysis():
         self.cursor.execute(query)
         dataquery1 = [list(ele) for ele in self.cursor]
         daily_df = pd.DataFrame(dataquery1,columns=['Ticker','Date','High','Low','Open','Close','Volume'])
-        dataquery1=[]
         daily_df['Date']=pd.to_datetime(daily_df['Date'])
+        lastestdate = daily_df['Date'].max()
+        recenttickers=daily_df.loc[daily_df['Date']==lastestdate,'Ticker'].tolist()
+        daily_df=daily_df[daily_df['Ticker'].isin(recenttickers)]
         daily_df['DateInt']=pd.to_numeric(daily_df['Date'].dt.strftime('%Y%m%d%H%M'))
         daily_df=daily_df.pivot(index='Date',columns='Ticker',values=['High','Low','Open','Close','Volume','DateInt'])
         daily_df.sort_index(inplace=True)
@@ -321,10 +325,72 @@ class npanalysis():
     def linear_regression(self,scaled_data,period,starting = 0):
         #by default only perform linear regression on the last data point
         return np.polyfit(range(period),scaled_data,deg=1)
+    
+    #Function to handle concurrent creation of CSV files in blob storage account
+    def createblobs(self,t):
+        trends = [13,10*13,20*13]
+        ticker = self.tickers[t]
+        df = self.daily_df.loc[:,idx[:,ticker]]
+        df.columns=df.columns.droplevel(1)
+        df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
+        df['date'] = df.index
+        df['hour'] = df['date'].dt.hour
+        df['dayofweek'] = df['date'].dt.dayofweek
+        df['quarter'] = df['date'].dt.quarter
+        df['month'] = df['date'].dt.month
+        df['year'] = df['date'].dt.year
+        df['dayofyear'] = df['date'].dt.dayofyear
+        df['dayofmonth'] = df['date'].dt.day
+        # df.loc[True,'weekofyear'] = df['date'].dt.weekofyear
+        df.drop('date',axis=1,inplace=True)
+        df.loc[:,'SMA']=Bollinger[:,0,t]
+        # df['PosStddev']=Bollinger[:,0,t]+Bollinger[:,1,t]*2
+        # df['NegStddev']=Bollinger[:,0,t]-Bollinger[:,1,t]*2
+        df.loc[:,'FisherTransform']=Fisher_Transform[:,0,t]
+        df.loc[:,'RSI']=RSI[:,0,t]
+        # df['FutureClose']=df['Close'].shift(-10)
+        for col,interval in enumerate(trends):
+            df.loc[:,'LinRegSlope'+str(interval)]=LinReg[:,col,t]
+            # df['LinRegInt'+str(interval)]=LinReg[:,col+2,t]
+        df=df[df['SMA']!=0]
+            
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            df.to_csv(f'{tmpdirname}/{ticker}.csv',index=False)
+            with open(tmpdirname + "/" + ticker + ".csv", "rb") as my_blob:
+                BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv").upload_blob(my_blob)
 
-def create_model():       
+#Function to handle concurrent deletion of existing csv blob files
+def deleteblobs(ticker):
+    if str(ticker+'.csv') in blobs_list:
+        try:
+            BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv").delete_blob() 
+        except:
+            pass
+
+def call_train_test(Uri_request):
+    try:
+        requests.post(Uri_request,timeout=1)
+    except:
+        logging.info(f'Failed to Process Training {Uri_request[73:100]}')
+
+def create_model():
+    global Bollinger
+    global Fisher_Transform
+    global RSI
+    global LinReg
+    global blob     
     mkt=npanalysis()
     mkt.importdata()
+    #Delete Blobs to begin storing csv files for the next training run
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ.get('blob_conn_str'))
+   # Instantiate a ContainerClient
+    container_client = blob_service_client.get_container_client("tensorflow")
+    global blobs_list
+    blobs_list = container_client.list_blobs()
+    blobs_list = [b.name for b in blobs_list]
+    with concurrent.futures.ThreadPoolExecutor(10) as executor:
+        executor.map(deleteblobs,mkt.tickers)  
+
     marketdata = mkt.daily_df
     print('bollinger')
     Bollinger =mkt.bollinger()
@@ -334,7 +400,7 @@ def create_model():
     RSI = mkt.CalcRSI(10)
     print('linreg')
     # linreg=np.empty()
-    
+    blob = [None]*mkt.tickers.shape[0]
     trends = [13,10*13,20*13]
     numcols = int(len(trends)*2)
     print(mkt.daily_np.shape)
@@ -350,29 +416,14 @@ def create_model():
             LinReg[mkt.y-s-1,c+2,:]=a[1]
     traintickers = ''
     testtickers = ''
+    testt=[]
+    traint=[]
+    global funcurl
+    global funckey
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
-    for t,ticker in enumerate(mkt.tickers[25:]):
-        df=createtable(mkt.daily_df,ticker)
-        
-        df.loc[:,'SMA']=Bollinger[:,0,t]
-        # df['PosStddev']=Bollinger[:,0,t]+Bollinger[:,1,t]*2
-        # df['NegStddev']=Bollinger[:,0,t]-Bollinger[:,1,t]*2
-        df.loc[:,'FisherTransform']=Fisher_Transform[:,0,t]
-        df.loc[:,'RSI']=RSI[:,0,t]
-        # df['FutureClose']=df['Close'].shift(-10)
-        for col,interval in enumerate(trends):
-            df.loc[:,'LinRegSlope'+str(interval)]=LinReg[:,col,t]
-            # df['LinRegInt'+str(interval)]=LinReg[:,col+2,t]
-        df=df[df['SMA']!=0]
-        # df.to_csv(f'DataFiles/{ticker}.csv',index=False)
-        blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv")
-        if blob.exists():
-            blob.delete_blob()            
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            df.to_csv(f'{tmpdirname}/{ticker}.csv',index=False)
-            with open(tmpdirname + "/" + ticker + ".csv", "rb") as my_blob:
-                blob.upload_blob(my_blob)
+    functioncalls=[]
+    for t,ticker in enumerate(mkt.tickers):
         
         mkt.cursor.execute(f"Select Trained_Date,trained_filename From Tickers Where Symbol='{ticker}'")
         trained_model = mkt.cursor.fetchall()
@@ -386,54 +437,35 @@ def create_model():
                 traintickers = str(traintickers+ ','+ticker) 
             else:
                traintickers = ticker
+            traint.append(t)
         else:
             if testtickers!='':
                 testtickers = str(testtickers+ ',' +ticker)  
             else: 
                 testtickers = ticker
-
+            testt.append(t)     
+        
         if (t%10==0 and t!=0) or t==mkt.tickers.shape[0]-1:
-            # if sincetraining>45 or trained_model[0][1]==None:
+            testt.extend(traint)
+            with concurrent.futures.ThreadPoolExecutor(10) as executor:
+                executor.map(mkt.createblobs,testt)
+
             if passkey == 'prod' and traintickers!='':
-                print(f'{funcurl}?name={traintickers}&Train=True&code={funckey}==')
-                try:
-                    requests.post(f'{funcurl}?name={traintickers}&Train=True&code={funckey}==',timeout=1)
-                except:
-                    logging.info(f'Failed to Process Training {traintickers}')
-                    print(f'Failed to Process Training {traintickers}')            
+                functioncalls.append(f'{funcurl}?name={traintickers}&Train=True&code={funckey}==')      
             else:
                 print(f'Info Only == {funcurl}?name={traintickers}&Train=True&code={funckey}==')
 
             if passkey == 'prod' and testtickers!='':
-                print(f'{funcurl}?name={testtickers}&Train=False&code={funckey}==')
-                try:
-                    requests.post(f'{funcurl}?name={testtickers}&Train=False&code={funckey}==',timeout=1)
-                except:
-                    logging.info(f'Failed to Process Testing {testtickers}')
-                    print(f'Failed to Process Testing {testtickers}')
+                functioncalls.append(f'{funcurl}?name={testtickers}&Train=False&code={funckey}==')
             else:
                 print(f'Info Only == {funcurl}?name={testtickers}&Train=False&code={funckey}==')
             traintickers = ''
             testtickers = ''
-                
-
-def createtable(df,ticker):
-    df = df.loc[:,idx[:,ticker]]
-    df.columns=df.columns.droplevel(1)
-    df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
-    df['date'] = df.index
-    df['hour'] = df['date'].dt.hour
-    df['dayofweek'] = df['date'].dt.dayofweek
-    df['quarter'] = df['date'].dt.quarter
-    df['month'] = df['date'].dt.month
-    df['year'] = df['date'].dt.year
-    df['dayofyear'] = df['date'].dt.dayofyear
-    df['dayofmonth'] = df['date'].dt.day
-    # df.loc[True,'weekofyear'] = df['date'].dt.weekofyear
-    df.drop('date',axis=1,inplace=True)
+            testt=[]
+            traint=[]
+    with concurrent.futures.ThreadPoolExecutor(10) as executor:
+        executor.map(call_train_test,functioncalls)
     
-    return df
-
 def main(mytimer: func.TimerRequest) -> None:
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')

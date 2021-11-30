@@ -232,13 +232,6 @@ class predictmodel():
     def testmodel(self):
         # load the data
         self.modelclass = buildmodel(self.tkr,self.data_df)
-        
-        conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
-            ';DATABASE='+os.environ.get('database')+ \
-                ';UID='+os.environ.get('dbusername')+ \
-                    ';PWD='+ os.environ.get('dbpassword')
-        self.cnxn = pyodbc.connect(conn_str)       
-        self.cursor = self.cnxn.cursor()
 
         data = self.modelclass.load_data(n_steps=N_STEPS, test_size=TEST_SIZE,
                         shuffle=False)
@@ -264,7 +257,12 @@ class predictmodel():
         future_price = self.predict(model, data)
         accuracy_score=self.get_accuracy(model, data)
         # print(f"Future price after {LOOKUP_STEP} days is {future_price:.2f}$")
-
+        conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
+            ';DATABASE='+os.environ.get('database')+ \
+                ';UID='+os.environ.get('dbusername')+ \
+                    ';PWD='+ os.environ.get('dbpassword')
+        self.cnxn = pyodbc.connect(conn_str)       
+        self.cursor = self.cnxn.cursor()
         self.cursor.execute(f"Update Tickers Set Predicted_Inc={future_price},Model_Accuracy={accuracy_score}  Where Symbol = '{tkr}'")
         self.cnxn.commit()
         self.cnxn.close()

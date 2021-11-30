@@ -11,15 +11,56 @@ import concurrent.futures
 import json
 import requests
 import requests
-
+import pyodbc
+import requests
+from azure.storage.blob import BlobClient
+import concurrent.futures
 load_dotenv()
 # Window size or the sequence length
 
+def deleteblobs(ticker):
+    blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv")
+    try:
+        blob.delete_blob() 
+        print('Delete ' +ticker)
+    except:
+        print('No ' +ticker)
+
+conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
+    ';DATABASE='+os.environ.get('database')+ \
+        ';UID='+os.environ.get('dbusername')+ \
+            ';PWD='+ os.environ.get('dbpassword')
+# uri=credintials.logicappuri
+starttime=datetime.strptime('09:00','%H:%M')
+tdelta=dt.timedelta(minutes=30)
+time_array=[]
+for i in range(13):
+    time_array.append(str(starttime+tdelta*i))
+    ##Set parameters for the ranking session based on backtesting results
+cnxn = pyodbc.connect(conn_str)       
+cursor = cnxn.cursor()
+cursor.execute("SELECT Symbol FROM Tickers")
+tickerssql = cursor.fetchall()
+tickers=[]
+for ticker in tickerssql:
+    ticker = ticker[0]
+    tickers.append(ticker)
+print('Starting Delete')
+with concurrent.futures.ThreadPoolExecutor(6) as executor:
+    executor.map(deleteblobs,tickers)
+# for ticker in tickers:
+#     blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv")
+#     try:
+#         blob.delete_blob() 
+#         print('Delete ' +ticker)
+#     except:
+#         print('No ' +ticker)
+# exit()
 funcurl = os.environ.get('FunctionURL')
 funckey = os.environ.get('FunctionKey')
 print(f'{funcurl}?code={funckey}==')
 requests.post(f'{funcurl}?name=TSLA,FB&Train=True&code={funckey}==',timeout=50)
-exit()
+
 token=os.environ.get('IEXTestKey')
 sybl='TWTR'
 base_url = f'https://sandbox.iexapis.com/stable/stock/{sybl}/quote'
