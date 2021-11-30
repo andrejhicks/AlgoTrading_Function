@@ -469,18 +469,12 @@ def create_model():
 def main(mytimer: func.TimerRequest) -> None:
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
-    try:
-        requests.post(f'{funcurl}?&code={funckey}==',timeout=1)
-    except:
-        pass
+
     currtime=datetime.now(EST)
     logging.info(currtime)
     hour = currtime.hour
     min = currtime.min
-    if (hour>=15 and min > 25):
-        return
-        #Initialize Brokerage API conncection
-    elif requests.get('https://cloud.iexapis.com/stable/stock/twtr/quote?token={}'.format(os.environ.get("IEXProdKey"))).json()['isUSMarketOpen'] or (hour==15 and min < 25):
+    if requests.get('https://cloud.iexapis.com/stable/stock/twtr/quote?token={}'.format(os.environ.get("IEXProdKey"))).json()['isUSMarketOpen'] or (hour==15 and min < 25):
         dd=importmarketdata()
         logging.info("Updating Data")
         dd.update_intraday_iex()
@@ -497,6 +491,7 @@ def main(mytimer: func.TimerRequest) -> None:
     for user in users:
         requests.post(f'{funcurl}?name={user}&code={funckey}==',timeout=.01)
     dd.cnxn.close()
+    return
 
 # passkey='test'
 # dd=importmarketdata()
