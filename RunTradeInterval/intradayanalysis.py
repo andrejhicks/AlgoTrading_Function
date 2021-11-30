@@ -18,13 +18,6 @@ load_dotenv()
 import tempfile
 import azure.functions as func
 
-#non-production libraries
-# from xgboost import plot_importance, plot_tree
-# import plotly.graph_objs as go
-# from plotly.subplots import make_subplots
-# import matplotlib.pyplot as plt
-# import testtensorflow as tsttf
-
 passkey='prod'                   
 idx=pd.IndexSlice
 global dd
@@ -180,7 +173,9 @@ class importmarketdata():
                     df=load_iex.loc[idx[i,:],:].copy()
                 except:
                     continue
-                if df['Volume'].sum(skipna=True)==0:
+                print(df.columns)
+                print(df.head)
+                if df['notional'].sum(skipna=True)==0:
                     continue
                 df.sort_values(by='minute',ascending=True,inplace=True)
                 for t in range(math.floor(interval/30)):
@@ -188,8 +183,8 @@ class importmarketdata():
                     b=self.starttime+(t+1)*time_step#+dt.timedelta(minutes=1)
                     avg_vals=df.loc[idx[:,a:b],:]
 
-                    openprice=avg_vals.loc[idx[:,:],'marketOpen'].to_numpy(copy=True)
-                    closeprice=avg_vals.loc[idx[:,:],'marketClose'].to_numpy(copy=True)
+                    openprice=avg_vals.loc[idx[:,:],'average'].to_numpy(copy=True)
+                    closeprice=avg_vals.loc[idx[:,:],'average'].to_numpy(copy=True)
                     if openprice.shape[0]<20:
                         continue
                     o=0
@@ -203,8 +198,8 @@ class importmarketdata():
                                 c=closeprice[-chk]                           
                     timerec=b
 
-                    new_data=pd.DataFrame([[i,timerec,avg_vals['marketHigh'].max(), \
-                        avg_vals['marketLow'].min(),o,c,avg_vals['marketVolume'].sum()]], \
+                    new_data=pd.DataFrame([[i,timerec,avg_vals['high'].max(), \
+                        avg_vals['low'].min(),o,c,avg_vals['notional'].sum()]], \
                         columns=['Ticker','DateIndex','high','low','open','close','volume'])
                     tickerdf=pd.concat([tickerdf,new_data],ignore_index=True)
 
@@ -367,6 +362,7 @@ def deleteblobs(ticker):
         except:
             pass
 
+#Function to handle concurrent calls to training function
 def call_train_test(Uri_request):
     try:
         requests.post(Uri_request,timeout=1)
@@ -466,7 +462,7 @@ def create_model():
     with concurrent.futures.ThreadPoolExecutor(10) as executor:
         executor.map(call_train_test,functioncalls)
     
-def main(mytimer: func.TimerRequest) -> None:
+def test():#main(mytimer: func.TimerRequest) -> None:
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
 
@@ -482,6 +478,7 @@ def main(mytimer: func.TimerRequest) -> None:
         create_model()
     else:
         print('Market Closed')
+
     #Wait before executing trades
     time.sleep(60000)
     dd.cursor.execute("Select UserKey From TradeServiceUsers Where Active = 1")
@@ -493,7 +490,4 @@ def main(mytimer: func.TimerRequest) -> None:
     dd.cnxn.close()
     return
 
-# passkey='test'
-# dd=importmarketdata()
-# dd.update_intraday_iex()
-# create_model()
+test()

@@ -29,7 +29,7 @@ def runtrades(key):
     acct_availabletrade = float(accountinfo.cash)
     openpositions= [list(p.symbol,p.qty) for p in acct_positions]
 
-    cursor.execute("Select Symbol,Growth_Rate From Tickers Where trained_filename is not NULL")
+    cursor.execute("Select Symbol,Predicted_Inc From Tickers Where trained_filename is not NULL")
     predictions = pd.DataFrame([list(ele) for ele in cursor],columns=['Symbol','PredictedGrowth'])
     predictions.set_index('Symbol',inplace=True)
     predictions.sort_values(by='PredictedGrowth',ascending=False, inplace=True)
