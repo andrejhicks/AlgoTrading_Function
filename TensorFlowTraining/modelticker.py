@@ -18,7 +18,7 @@ from sklearn.model_selection import train_test_split
 from collections import deque
 import pyodbc
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential,save_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
 from tensorflow.keras.callbacks import ModelCheckpoint
 from azure.storage.blob import BlobClient
@@ -249,7 +249,7 @@ class predictmodel():
                 blob_data = blob.download_blob()
                 blob_data.readinto(my_blob)
             model = tf.keras.models.load_model(tmpdirname + "/" + self.model_name + ".h5")
-
+        save_model(model,'testmodel',include_optimizer=False,save_format='h5',save_traces=False)
         # evaluate the model
         mse, mae = model.evaluate(data["X_test"], data["y_test"], verbose=0)
         # calculate the mean absolute error (inverse scaling)
@@ -399,7 +399,10 @@ class npanalysis():
         idx=pd.IndexSlice
         self.df = pd.DataFrame()
         for t,ticker in enumerate(tickers):
-            df = self.daily_df.loc[:,idx[:,ticker]]
+            try:
+                df = self.daily_df.loc[:,idx[:,ticker]]
+            except:
+                continue
             df.columns=df.columns.droplevel(1)
             df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
             df['date'] = df.index
@@ -424,6 +427,7 @@ class npanalysis():
             df=df[df['SMA']!=0]
             df['Symbol']=ticker
             self.df=pd.concat([self.df,df])
+            logging.info(self.df.head())
         return self.df
 
 def main(req: func.HttpRequest) -> None:
@@ -500,3 +504,4 @@ LOSS = "huber_loss"
 OPTIMIZER = "adam"
 BATCH_SIZE = 64
 EPOCHS = 15
+tf.keras.models.load_model('testmodel')
