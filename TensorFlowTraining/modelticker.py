@@ -4,7 +4,9 @@ load_dotenv()
 import azure.functions as func
 import os
 import json
+import math
 import time
+import datetime as dt
 from datetime import datetime
 import pytz
 EST=pytz.timezone('US/Eastern')
@@ -269,9 +271,163 @@ class predictmodel():
 
         return accuracy_score,future_price
 
+class npanalysis():
+    def __init__(self):
+        ##Set parameters for the ranking session based on backtesting results
+        self.conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
+            ';DATABASE='+os.environ.get('database')+ \
+                ';UID='+os.environ.get('dbusername')+ \
+                    ';PWD='+ os.environ.get('dbpassword')
+        
 
+    def importdata(self):
+        self.cnxn = pyodbc.connect(self.conn_str)       
+        self.cursor = self.cnxn.cursor()
+        query = "Select Distinct Ticker, DateIndex, High, Low, Open_, Close_, Volume From HourData Where DateIndex>DateAdd(Month,-6,GetDate()) and Ticker in ('{}')".format("','".join(tickers))
+        self.cursor.execute(query)
+        dataquery1 = [list(ele) for ele in self.cursor]
+        self.cnxn.close()
+        daily_df = pd.DataFrame(dataquery1,columns=['Ticker','Date','High','Low','Open','Close','Volume'])
+        daily_df['Date']=pd.to_datetime(daily_df['Date'])
+        lastestdate = daily_df['Date'].max()
+        recenttickers=daily_df.loc[daily_df['Date']==lastestdate,'Ticker'].tolist()
+        daily_df=daily_df[daily_df['Ticker'].isin(recenttickers)]
+        daily_df['DateInt']=pd.to_numeric(daily_df['Date'].dt.strftime('%Y%m%d%H%M'))
+        daily_df=daily_df.pivot(index='Date',columns='Ticker',values=['High','Low','Open','Close','Volume','DateInt'])
+        daily_df.sort_index(inplace=True)
+        # Get all tickers in the daily_df dataframe in the correct order
+        self.tickers=np.unique(daily_df['High'].columns.to_numpy(copy=True))
+        rows=len(daily_df.index)
+        #Create a 3D array for calculation of indicators
+        self.daily_np=np.empty(shape=(rows,6,self.tickers.shape[0]))
+        self.daily_df=daily_df.copy()
+        idx=pd.IndexSlice
+        #Build the numpy array by looping through the array and placing the array with the z-axis being ticker
+        for tn,t in enumerate(self.tickers):
+            self.daily_np[:,:,tn]=self.daily_df.loc[:,idx[:,t]].to_numpy(copy=True)
+        np.nan_to_num(self.daily_np,copy=True)
+            
+        self.y=self.daily_np.shape[0]
+        self.x=self.daily_np.shape[1]
+        self.z=self.daily_np.shape[2]
+        print('The size of the data analysis X:{} Rows, Y:{} Columns, Z:{} Indicators'.format(str(self.y),str(self.x),str(self.z)))
+
+    def bollinger(self):
+        bollinger=np.empty(shape=(self.y,2,self.z))
+        window=70
+        st=dt.datetime.now()
+        #loop through each ticker and calculate the SMA and 1x Standard deviation. This can be multiplied as needed for bollinger limits
+        for t in range(self.z):
+            stddev=np.empty(0)
+            bollinger[int(window-1):,0,t]=np.convolve(self.daily_np[:,3,t],np.ones(window),'valid')/window
+            for n in range(window-1,self.y):
+                bollinger[n,1,t]=np.std(self.daily_np[n-window:n,3,t])
+        print(dt.datetime.now()-st)
+        return bollinger
+
+    def fisher_transform(self,period=50,days=800):
+        fisher=np.zeros(shape=(self.y,1,self.z))
+        r=self.y
+        Xax=np.arange(0,days,1)
+        for d in range(days,-1,-1):
+            f=self.daily_np[r-period-d:r-d,3,:]
+            # print(f.shape)
+            minf=np.amin(f,0).flatten()
+            maxf=np.amax(f,0).flatten()
+            diff_f=maxf-minf
+            scalarf=(f-minf)/diff_f*2-1
+            scalarf=np.where(scalarf==-1,-.999,scalarf)
+            scalarf=np.where(scalarf==1,.999,scalarf)
+            for i in range(self.z):
+                # print(i)
+                fisher[-d,0,i]=.5*math.log(np.divide((1+scalarf[-1:,i]),(1-scalarf[-1:,i])))+.5*fisher[-d-1,0,i]
+        return fisher
+    
+    def CalcRSI(self,rsiperiod):
+        # Calculate RSI
+        # rsiperiod=14
+        # prev_close=np.vstack((np.zeros((1,self.close_np.shape[1])),self.close_np[:-1,:]))
+        diffclose=np.zeros(shape=(self.y-1,1,self.z))
+        for t in range(self.z):
+            col = self.daily_np[:,3,t]
+            diffclose[:,:,t]=np.vstack(np.diff(col,axis=0))
+        gain=np.where(diffclose>=0,diffclose,0)
+        loss=np.abs(np.where(diffclose<0,diffclose,0))
+        gainavg=np.zeros(gain.shape)
+        lossavg=np.zeros(loss.shape)
+        gainavg[rsiperiod-1,:]=np.mean(gain[:rsiperiod-1,:],axis=0)
+        lossavg[rsiperiod-1,:]=np.mean(loss[:rsiperiod-1,:],axis=0)
+        for r in range(rsiperiod,gainavg.shape[0]):
+            gainavg[r,:]=(gain[r,:]+gainavg[r-1,:]*(rsiperiod-1))/rsiperiod
+            lossavg[r,:]=(loss[r,:]+lossavg[r-1,:]*(rsiperiod-1))/rsiperiod
+        # relstrength=np.divide(gainavg,lossavg,where=(lossavg>0))
+
+        RSI=np.append(np.zeros(shape=(1,1,self.z)),-100/(np.divide(gainavg,lossavg,where=(lossavg>0))+1)+100,axis=0)
+        return RSI
+
+    def linear_regression(self,scaled_data,period,starting = 0):
+        #by default only perform linear regression on the last data point
+        return np.polyfit(range(period),scaled_data,deg=1)
+
+    def create_model(self):
+        
+        self.importdata()
+        marketdata = self.daily_df
+        print('bollinger')
+        Bollinger =self.bollinger()
+        print('Fisher')
+        Fisher_Transform = self.fisher_transform()
+        print('RSI')
+        RSI = self.CalcRSI(10)
+        print('linreg')
+        # linreg=np.empty()
+        blob = [None]*self.tickers.shape[0]
+        trends = [13,10*13,20*13]
+        numcols = int(len(trends)*2)
+        print(self.daily_np.shape)
+        LinReg=np.zeros(shape=(self.y,numcols,self.z),dtype=float)
+        min_max_scaler = preprocessing.MinMaxScaler()
+        for c,p in enumerate(trends):
+            print(p)
+            for s in range(self.y-p):
+                r=self.y-s
+                sclar_data = min_max_scaler.fit_transform(self.daily_np[r-p:r,3,:])
+                a=self.linear_regression(sclar_data,period=p,starting=s)
+                LinReg[self.y-s-1,c,:]=a[0]
+            LinReg[self.y-s-1,c+2,:]=a[1]
+        
+        idx=pd.IndexSlice
+        self.df = pd.DataFrame()
+        for t,ticker in enumerate(tickers):
+            df = self.daily_df.loc[:,idx[:,ticker]]
+            df.columns=df.columns.droplevel(1)
+            df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
+            df['date'] = df.index
+            df['hour'] = df['date'].dt.hour
+            df['dayofweek'] = df['date'].dt.dayofweek
+            df['quarter'] = df['date'].dt.quarter
+            df['month'] = df['date'].dt.month
+            df['year'] = df['date'].dt.year
+            df['dayofyear'] = df['date'].dt.dayofyear
+            df['dayofmonth'] = df['date'].dt.day
+            # df.loc[True,'weekofyear'] = df['date'].dt.weekofyear
+            df.drop('date',axis=1,inplace=True)
+            df.loc[:,'SMA']=Bollinger[:,0,t]
+            # df['PosStddev']=Bollinger[:,0,t]+Bollinger[:,1,t]*2
+            # df['NegStddev']=Bollinger[:,0,t]-Bollinger[:,1,t]*2
+            df.loc[:,'FisherTransform']=Fisher_Transform[:,0,t]
+            df.loc[:,'RSI']=RSI[:,0,t]
+            # df['FutureClose']=df['Close'].shift(-10)
+            for col,interval in enumerate(trends):
+                df.loc[:,'LinRegSlope'+str(interval)]=LinReg[:,col,t]
+                # df['LinRegInt'+str(interval)]=LinReg[:,col+2,t]
+            df=df[df['SMA']!=0]
+            df['Symbol']=ticker
+            self.df=pd.concat([self.df,df])
+        return self.df
 
 def main(req: func.HttpRequest) -> None:
+    global tickers
     logging.info('Python HTTP trigger function processed a request.')
     hasdata = req.params.get('name')
     if not hasdata:
@@ -280,15 +436,12 @@ def main(req: func.HttpRequest) -> None:
     global data_df
     ticker = req.params.get('name')
     todo = req.params.get('Train')
-    for tkr in ticker.split(','):
-        datablob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=f"{tkr}.csv")
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            with open(tmpdirname + "/" + tkr + ".csv", "wb") as mydata:
-                blob_data = datablob.download_blob()
-                blob_data.readinto(mydata)
-                data_df = pd.read_csv(tmpdirname + "/" + tkr+'.csv')
-                data_df=data_df.replace([np.inf, -np.inf], np.nan)
-        datablob.delete_blob()
+    tickers = ticker.split(',')
+    alldf = npanalysis().create_model()
+
+    for tkr in tickers:
+        data_df=alldf[alldf['Symbol']==tkr]
+        data_df.drop(['Symbol'],inplace=True,axis=1)
         cls=buildmodel(tkr,data_df)
         future = 0
         logging.info(f'Symbol:{tkr}, Train:{todo}')
@@ -304,7 +457,7 @@ def main(req: func.HttpRequest) -> None:
         except:
             logging.info(f'{tkr} Failed to Train/Test')
             continue
-    
+    return
 
 global tkr
 global data_df
@@ -313,7 +466,7 @@ tf.random.set_seed(314)
 random.seed(314)
 
 
-
+tickers=[]
 # Window size or the sequence length
 N_STEPS = 100
 # Lookup step, 1 is the next period of time

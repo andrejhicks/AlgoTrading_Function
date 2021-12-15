@@ -35,20 +35,26 @@ class importmarketdata():
         for i in range(13):
             self.time_array.append(str(starttime+tdelta*i))
             ##Set parameters for the ranking session based on backtesting results
-        self.cnxn = pyodbc.connect(conn_str)       
-        self.cursor = self.cnxn.cursor()
-        self.cursor.execute("SELECT Symbol FROM Tickers")
-        tickerssql = self.cursor.fetchall()
+        tries=0
         self.tickers=[]
-        for ticker in tickerssql:
-            ticker = ticker[0]
-            self.tickers.append(ticker)
-        self.tickers.sort()
-        self.tickers=self.tickers
+        while tries<5 and self.tickers==[]:
+            try:
+                self.cnxn = pyodbc.connect(conn_str)       
+                self.cursor = self.cnxn.cursor()
+                self.cursor.execute("SELECT Symbol FROM Tickers")
+                tickerssql = self.cursor.fetchall()
+                for ticker in tickerssql:
+                    ticker = ticker[0]
+                    self.tickers.append(ticker)
+                self.tickers.sort()
+                self.tickers=self.tickers
+            except:
+                tries+=1
         if passkey=='prod':
             self.hourtbl = 'HourData'
         else:
             self.hourtbl = 'HourData'
+
     def import_iex_data(self,requesturl,requestparams):       
         retry=0
         while True and retry<3:
@@ -365,104 +371,119 @@ def deleteblobs(ticker):
 #Function to handle concurrent calls to training function
 def call_train_test(Uri_request):
     try:
-        requests.post(Uri_request,timeout=1)
+        print(Uri_request)
+        # requests.post(Uri_request,timeout=1)
     except:
         logging.info(f'Failed to Process Training {Uri_request[73:100]}')
 
 def create_model():
-    global Bollinger
-    global Fisher_Transform
-    global RSI
-    global LinReg
-    global blob     
-    mkt=npanalysis()
-    mkt.importdata()
-    #Delete Blobs to begin storing csv files for the next training run
-    blob_service_client = BlobServiceClient.from_connection_string(os.environ.get('blob_conn_str'))
-   # Instantiate a ContainerClient
-    container_client = blob_service_client.get_container_client("tensorflow")
-    global blobs_list
-    blobs_list = container_client.list_blobs()
-    blobs_list = [b.name for b in blobs_list]
-    with concurrent.futures.ThreadPoolExecutor(10) as executor:
-        executor.map(deleteblobs,mkt.tickers)  
+#     global Bollinger
+#     global Fisher_Transform
+#     global RSI
+#     global LinReg
+#     global blob     
+#     mkt=npanalysis()
+#     mkt.importdata()
+#     #Delete Blobs to begin storing csv files for the next training run
+#     blob_service_client = BlobServiceClient.from_connection_string(os.environ.get('blob_conn_str'))
+#    # Instantiate a ContainerClient
+#     container_client = blob_service_client.get_container_client("tensorflow")
+#     global blobs_list
+#     blobs_list = container_client.list_blobs()
+#     blobs_list = [b.name for b in blobs_list]
+#     with concurrent.futures.ThreadPoolExecutor(10) as executor:
+#         executor.map(deleteblobs,mkt.tickers)  
 
-    marketdata = mkt.daily_df
-    print('bollinger')
-    Bollinger =mkt.bollinger()
-    print('Fisher')
-    Fisher_Transform = mkt.fisher_transform()
-    print('RSI')
-    RSI = mkt.CalcRSI(10)
-    print('linreg')
-    # linreg=np.empty()
-    blob = [None]*mkt.tickers.shape[0]
-    trends = [13,10*13,20*13]
-    numcols = int(len(trends)*2)
-    print(mkt.daily_np.shape)
-    LinReg=np.zeros(shape=(mkt.y,numcols,mkt.z),dtype=float)
-    min_max_scaler = preprocessing.MinMaxScaler()
-    for c,p in enumerate(trends):
-        print(p)
-        for s in range(mkt.y-p):
-            r=mkt.y-s
-            sclar_data = min_max_scaler.fit_transform(mkt.daily_np[r-p:r,3,:])
-            a=mkt.linear_regression(sclar_data,period=p,starting=s)
-            LinReg[mkt.y-s-1,c,:]=a[0]
-            LinReg[mkt.y-s-1,c+2,:]=a[1]
+#     marketdata = mkt.daily_df
+#     print('bollinger')
+#     Bollinger =mkt.bollinger()
+#     print('Fisher')
+#     Fisher_Transform = mkt.fisher_transform()
+#     print('RSI')
+#     RSI = mkt.CalcRSI(10)
+#     print('linreg')
+#     # linreg=np.empty()
+#     blob = [None]*mkt.tickers.shape[0]
+#     trends = [13,10*13,20*13]
+#     numcols = int(len(trends)*2)
+#     print(mkt.daily_np.shape)
+#     LinReg=np.zeros(shape=(mkt.y,numcols,mkt.z),dtype=float)
+#     min_max_scaler = preprocessing.MinMaxScaler()
+#     for c,p in enumerate(trends):
+#         print(p)
+#         for s in range(mkt.y-p):
+#             r=mkt.y-s
+#             sclar_data = min_max_scaler.fit_transform(mkt.daily_np[r-p:r,3,:])
+#             a=mkt.linear_regression(sclar_data,period=p,starting=s)
+#             LinReg[mkt.y-s-1,c,:]=a[0]
+#             LinReg[mkt.y-s-1,c+2,:]=a[1]
+    conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
+            ';DATABASE='+os.environ.get('database')+ \
+                ';UID='+os.environ.get('dbusername')+ \
+                    ';PWD='+ os.environ.get('dbpassword')  
+    cnxn = pyodbc.connect(conn_str)  
+    cursor = cnxn.cursor()
+
+    cursor.execute("""Select Distinct Ticker From HourData Where DateIndex>DateAdd(Day,-20,GetDate())""")
+    tickers = [t[0] for t in cursor]
     traintickers = ''
     testtickers = ''
-    testt=[]
-    traint=[]
+    # testt=[]
+    # traint=[]
     global funcurl
     global funckey
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
     functioncalls=[]
-    for t,ticker in enumerate(mkt.tickers):
-        
-        mkt.cursor.execute(f"Select Trained_Date,trained_filename From Tickers Where Symbol='{ticker}'")
-        trained_model = mkt.cursor.fetchall()
+    cursor.execute(f"Select Symbol,Trained_Date,trained_filename From Tickers")
+    trainedmodels = [list(ele) for ele in cursor]
+    trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename'])
+    trainedmodels.set_index('Ticker',inplace=True)
+    print(trainedmodels.head())
+    for t,ticker in enumerate(tickers):
+        trained_model=trainedmodels.loc[ticker]
+        print(trained_model)
 
-        if trained_model[0][0]==None:
+        if trained_model['Trained_Date']==None:
             sincetraining=100
         else:
-            sincetraining = (trained_model[0][0]-datetime.now().date()).days
-        if sincetraining>45 or trained_model[0][1]==None:
+            sincetraining = (trained_model['Trained_Date']-datetime.now().date()).days
+        if sincetraining>45 or trained_model['Filename']==None:
             if traintickers!='': 
                 traintickers = str(traintickers+ ','+ticker) 
             else:
                traintickers = ticker
-            traint.append(t)
+            # traint.append(t)
         else:
             if testtickers!='':
                 testtickers = str(testtickers+ ',' +ticker)  
             else: 
                 testtickers = ticker
-            testt.append(t)     
+            # testt.append(t)     
         
-        if (t%10==0 and t!=0) or t==mkt.tickers.shape[0]-1:
-            testt.extend(traint)
-            with concurrent.futures.ThreadPoolExecutor(10) as executor:
-                executor.map(mkt.createblobs,testt)
+        if (t%10==0 and t!=0) or t==len(tickers)-1:
+            # testt.extend(traint)
+            # with concurrent.futures.ThreadPoolExecutor(10) as executor:
+            #     executor.map(mkt.createblobs,testt)
 
-            if passkey == 'prod' and traintickers!='':
+            if passkey == 'prod' and len(traintickers)>0:
                 functioncalls.append(f'{funcurl}?name={traintickers}&Train=True&code={funckey}==')      
             else:
                 print(f'Info Only == {funcurl}?name={traintickers}&Train=True&code={funckey}==')
 
-            if passkey == 'prod' and testtickers!='':
+            if passkey == 'prod' and len(testtickers)>0:
                 functioncalls.append(f'{funcurl}?name={testtickers}&Train=False&code={funckey}==')
             else:
                 print(f'Info Only == {funcurl}?name={testtickers}&Train=False&code={funckey}==')
             traintickers = ''
             testtickers = ''
-            testt=[]
-            traint=[]
+            # testt=[]
+            # traint=[]
     with concurrent.futures.ThreadPoolExecutor(10) as executor:
         executor.map(call_train_test,functioncalls)
+    cnxn.close()
     
-def test():#main(mytimer: func.TimerRequest) -> None:
+def main(mytimer: func.TimerRequest) -> None:
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
 
@@ -490,4 +511,4 @@ def test():#main(mytimer: func.TimerRequest) -> None:
     dd.cnxn.close()
     return
 
-test()
+create_model()
