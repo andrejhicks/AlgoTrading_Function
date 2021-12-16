@@ -332,4 +332,3 @@ def main(mytimer: func.TimerRequest) -> None:
         requests.post(f'{funcurl}?name={user}&code={funckey}==',timeout=.01)
     dd.cnxn.close()
     return
-create_model()
