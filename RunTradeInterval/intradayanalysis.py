@@ -179,8 +179,6 @@ class importmarketdata():
                     df=load_iex.loc[idx[i,:],:].copy()
                 except:
                     continue
-                print(df.columns)
-                print(df.head)
                 if df['notional'].sum(skipna=True)==0:
                     continue
                 df.sort_values(by='minute',ascending=True,inplace=True)
@@ -226,11 +224,8 @@ class importmarketdata():
             if len(queryarray)>0:
                 for count,q in enumerate(queryarray):
                     self.cursor.execute(q.replace('nan','0'))
-                    print(len(q))
-                    print(count)
             if passkey=='prod':
-                pass
-                # self.cnxn.commit()
+                self.cnxn.commit()
             
         return #tickerdata
 
@@ -238,12 +233,13 @@ class importmarketdata():
 def call_train_test(Uri_request):
     try:
         print(Uri_request)
+        logging.info(Uri_request)
         requests.post(Uri_request,timeout=0.01)
     except:
         logging.info(f'Failed to Process Training {Uri_request[73:100]}')
 
 def create_model():
-
+    logging.info("Generating Models")
     conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
                 ';UID='+os.environ.get('dbusername')+ \
@@ -270,28 +266,27 @@ def create_model():
     functioncalls=[]
     cursor.execute(f"Select Symbol,Trained_Date,trained_filename From Tickers Where Model_Accuracy>0.6")
     trainedmodels = [list(ele) for ele in cursor]
-    trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename','Model_Accuracy'])
+    trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename'])
     trainedmodels.set_index('Ticker',inplace=True)
-    print(trainedmodels.head())
-    for t,ticker in enumerate(tickers):
-        trained_model=trainedmodels.loc[ticker]
+    logging.info("Running for {} Models".format(str(trainedmodels.shape[0])))
 
-        if trained_model['Trained_Date']==None:
+    for t,ticker in enumerate(trainedmodels.itertuples()):
+        if ticker.Trained_Date==None:
             sincetraining=100
         else:
-            sincetraining = (trained_model['Trained_Date']-datetime.now().date()).days
-        if sincetraining>45 or trained_model['Filename']==None:
+            sincetraining = (ticker.Trained_Date-datetime.now().date()).days
+        if sincetraining>45 or ticker.Filename==None:
             if traintickers!='': 
-                traintickers = str(traintickers+ ','+ticker) 
+                traintickers = str(traintickers+ ','+ticker.Index) 
             else:
-               traintickers = ticker
+               traintickers = ticker.Index
         else:
             if testtickers!='':
-                testtickers = str(testtickers+ ',' +ticker)  
+                testtickers = str(testtickers+ ',' +ticker.Index)  
             else: 
-                testtickers = ticker    
-        lenfunc = len(functioncalls)
-        if (lenfunc%10==0 and lenfunc!=0) or t==len(tickers)-1:
+                testtickers = ticker.Index    
+        lenfunc = len(testtickers.split(','))
+        if (lenfunc%10==0 and lenfunc!=0) or t==trainedmodels.shape[0]-1:
 
             if passkey == 'prod' and len(traintickers)>0:
                 pass
@@ -337,4 +332,4 @@ def main(mytimer: func.TimerRequest) -> None:
         requests.post(f'{funcurl}?name={user}&code={funckey}==',timeout=.01)
     dd.cnxn.close()
     return
-#"schedule": "0 0/30 14-21 * * 1-5"
+create_model()
