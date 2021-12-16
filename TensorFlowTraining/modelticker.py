@@ -249,7 +249,7 @@ class predictmodel():
                 blob_data = blob.download_blob()
                 blob_data.readinto(my_blob)
             model = tf.keras.models.load_model(tmpdirname + "/" + self.model_name + ".h5")
-        save_model(model,'testmodel',include_optimizer=False,save_format='h5',save_traces=False)
+        
         # evaluate the model
         mse, mae = model.evaluate(data["X_test"], data["y_test"], verbose=0)
         # calculate the mean absolute error (inverse scaling)
@@ -265,7 +265,7 @@ class predictmodel():
                     ';PWD='+ os.environ.get('dbpassword')
         self.cnxn = pyodbc.connect(conn_str)       
         self.cursor = self.cnxn.cursor()
-        self.cursor.execute(f"Update Tickers Set Predicted_Inc={future_price},Model_Accuracy={accuracy_score}  Where Symbol = '{tkr}'")
+        self.cursor.execute(f"Update Tickers Set Predicted_Inc={future_price},Model_Accuracy={accuracy_score},Modified_Date=GETDATE() Where Symbol = '{tkr}'")
         self.cnxn.commit()
         self.cnxn.close()
 
@@ -504,4 +504,3 @@ LOSS = "huber_loss"
 OPTIMIZER = "adam"
 BATCH_SIZE = 64
 EPOCHS = 15
-tf.keras.models.load_model('testmodel')

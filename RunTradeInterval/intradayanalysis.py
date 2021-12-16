@@ -229,7 +229,8 @@ class importmarketdata():
                     print(len(q))
                     print(count)
             if passkey=='prod':
-                self.cnxn.commit()
+                pass
+                # self.cnxn.commit()
             
         return #tickerdata
 
@@ -246,8 +247,15 @@ def create_model():
     conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
                 ';UID='+os.environ.get('dbusername')+ \
-                    ';PWD='+ os.environ.get('dbpassword')  
-    cnxn = pyodbc.connect(conn_str)  
+                    ';PWD='+ os.environ.get('dbpassword') 
+    retry=0
+    while retry<=3:
+        try:
+            cnxn = pyodbc.connect(conn_str)
+            break
+        except:
+            retry+=1
+            continue  
     cursor = cnxn.cursor()
 
     cursor.execute("""Select Distinct Ticker From HourData Where DateIndex>DateAdd(Day,-20,GetDate())""")
@@ -260,12 +268,12 @@ def create_model():
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
     functioncalls=[]
-    cursor.execute(f"Select Symbol,Trained_Date,trained_filename From Tickers")
+    cursor.execute(f"Select Symbol,Trained_Date,trained_filename From Tickers Where Model_Accuracy>0.6")
     trainedmodels = [list(ele) for ele in cursor]
-    trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename'])
+    trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename','Model_Accuracy'])
     trainedmodels.set_index('Ticker',inplace=True)
     print(trainedmodels.head())
-    for t,ticker in enumerate(tickers[:25]):
+    for t,ticker in enumerate(tickers):
         trained_model=trainedmodels.loc[ticker]
 
         if trained_model['Trained_Date']==None:
@@ -282,8 +290,8 @@ def create_model():
                 testtickers = str(testtickers+ ',' +ticker)  
             else: 
                 testtickers = ticker    
-        
-        if (t%10==0 and t!=0) or t==len(tickers)-1:
+        lenfunc = len(functioncalls)
+        if (lenfunc%10==0 and lenfunc!=0) or t==len(tickers)-1:
 
             if passkey == 'prod' and len(traintickers)>0:
                 pass
@@ -298,7 +306,7 @@ def create_model():
             traintickers = ''
             testtickers = ''
 
-    with concurrent.futures.ThreadPoolExecutor(10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(2) as executor:
         executor.map(call_train_test,functioncalls)
     cnxn.close()
     
@@ -329,5 +337,4 @@ def main(mytimer: func.TimerRequest) -> None:
         requests.post(f'{funcurl}?name={user}&code={funckey}==',timeout=.01)
     dd.cnxn.close()
     return
-
-create_model()
+#"schedule": "0 0/30 14-21 * * 1-5"

@@ -30,7 +30,7 @@ def runtrades(key):
 
     openpositions= [[p.symbol,p.qty] for p in acct_positions]
 
-    cursor.execute("Select Symbol,Predicted_Inc, Model_Accuracy From Tickers Where trained_filename is not NULL and Model_Accuracy>0.7")
+    cursor.execute("Select Symbol,Predicted_Inc, Model_Accuracy From Tickers Where trained_filename is not NULL and Model_Accuracy>0.7 and Modified_Date>DateAdd(Hour,-1,GETDATE())")
     predictions = pd.DataFrame([list(ele) for ele in cursor],columns=['Symbol','PredictedGrowth','Accuracy'])
     predictions.set_index('Symbol',inplace=True)
     predictions.sort_values(by='PredictedGrowth',ascending=False, inplace=True)
