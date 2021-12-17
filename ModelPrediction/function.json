@@ -1,0 +1,15 @@
+{
+  "scriptFile": "Modelpredict.py",
+  "bindings": [
+    {
+      "authLevel": "function",
+      "type": "httpTrigger",
+      "direction": "in",
+      "symbols": "req",
+      "methods": [
+        "get",
+        "post"
+      ]
+    }
+  ]
+}
