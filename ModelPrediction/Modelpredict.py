@@ -162,7 +162,7 @@ class predictmodel():
         # predict the future price
         future_price = self.predict(model, data)
         accuracy_score=self.get_accuracy(model, data)
-        predictiontimes.append(datetime.now()-t1)
+        
         # print(f"Future price after {LOOKUP_STEP} days is {future_price:.2f}$")
         conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
