@@ -18,8 +18,8 @@ from sklearn.model_selection import train_test_split
 from collections import deque
 import pyodbc
 from tensorflow import random as tf_random
-from tensorflow.keras.models import load_model
-from tensorflow.keras.layers import LSTM
+from tensorflow.keras.models import load_model,Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
 from azure.storage.blob import BlobClient
 from sklearn.metrics import accuracy_score
 try:
@@ -118,6 +118,34 @@ class predictmodel():
         # return the result
         return result
 
+    def create_model(self,sequence_length, units=256, cell=LSTM, n_layers=2, dropout=0.3,
+                loss="mean_absolute_error", optimizer="rmsprop", bidirectional=False):
+        model = Sequential()
+        for i in range(n_layers):
+            if i == 0:
+                # first layer
+                if bidirectional:
+                    model.add(Bidirectional(cell(units, return_sequences=True), input_shape=(None, sequence_length)))
+                else:
+                    model.add(cell(units, return_sequences=True, input_shape=(None, sequence_length)))
+            elif i == n_layers - 1:
+                # last layer
+                if bidirectional:
+                    model.add(Bidirectional(cell(units, return_sequences=False)))
+                else:
+                    model.add(cell(units, return_sequences=False))
+            else:
+                # hidden layers
+                if bidirectional:
+                    model.add(Bidirectional(cell(units, return_sequences=True)))
+                else:
+                    model.add(cell(units, return_sequences=True))
+            # add dropout after each layer
+            model.add(Dropout(dropout))
+        model.add(Dense(1, activation="linear"))
+        model.compile(loss=loss, metrics=["mean_absolute_error"], optimizer=optimizer)
+        return model
+
     def get_accuracy(self,model, data):
         y_test = data["y_test"]
         X_test = data["X_test"]
@@ -158,7 +186,12 @@ class predictmodel():
                 blob_data.readinto(my_blob)
             model = load_model(tmpdirname + "/" + self.model_name + ".h5")
         logging.info(datetime.now()-t1)
-
+        model.save_weights('testckpt{}.cpt'.format(tkr))
+        del model
+        model = self.create_model(self.params["N_STEPS"], loss=self.params["LOSS"], units=self.params["UNITS"], cell=CELL, n_layers=self.params["N_LAYERS"],
+                                    dropout=self.params["DROPOUT"], optimizer=self.params["OPTIMIZER"], bidirectional=self.params["BIDIRECTIONAL"])
+        model.load_weights('testckpt{}.cpt'.format(tkr))
+        
         # predict the future price
         future_price = self.predict(model, data)
         accuracy_score=self.get_accuracy(model, data)
@@ -274,7 +307,7 @@ class npanalysis():
         #by default only perform linear regression on the last data point
         return np.polyfit(range(period),scaled_data,deg=1)
 
-    def create_model(self):
+    def createindicators(self):
         
         self.importdata()
         print('bollinger')
@@ -345,8 +378,10 @@ def main(req: func.HttpRequest) -> None:
     global data_df
     ticker = req.params.get('name')
     tickers = ticker.split(',')
+    alldf = req.get_json()
+    logging.info(alldf)
 
-    alldf = npanalysis().create_model()
+    alldf = npanalysis().createindicators()
     cnxn=pyodbc.connect(npanalysis().conn_str)
     cursor=cnxn.cursor()
     cursor.execute("Select Symbol, trained_filename, TrainingParams From Tickers Where Symbol in ('{}')".format("','".join(tickers)))
@@ -359,13 +394,14 @@ def main(req: func.HttpRequest) -> None:
         future = 0
         logging.info(f'Symbol:{tkr}')
 
-        try:
-            pred=predictmodel(tkr,data_df)
-            accuracy,future = pred.testmodel()
-            logging.info(str(accuracy) + ' ' + str(future))
-        except:
-            logging.info(f'{tkr} Failed to Predict')
-            continue
+        # try:
+        pred=predictmodel(tkr,data_df)
+        accuracy,future = pred.testmodel()
+        logging.info(str(accuracy) + ' ' + str(future))
+        print(str(accuracy) + ' ' + str(future))
+        # except:
+        #     logging.info(f'{tkr} Failed to Predict')
+        #     continue
     return
 
 global tkr
@@ -377,3 +413,4 @@ random.seed(314)
 CELL = LSTM
 
 tickers=[]
+# test()
