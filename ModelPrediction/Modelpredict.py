@@ -50,9 +50,10 @@ class predictmodel():
         global FEATURE_COLUMNS
         FEATURE_COLUMNS=[]
         for col in self.data_df.columns:
-            if col not in FEATURE_COLUMNS:
+            if col not in FEATURE_COLUMNS and col!='Ticker':
                 FEATURE_COLUMNS.append(col)
         df=self.data_df.copy()
+        df.drop('Ticker',axis=1,inplace=True)
         df.dropna(inplace=True,axis=0)
         # this will contain all the elements we want to return from this function
         result = {}
@@ -152,12 +153,10 @@ class predictmodel():
         blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name="results"+"/"+self.model_name + ".h5")
         t1 = datetime.now()
         with tempfile.TemporaryDirectory() as tmpdirname:
-            logging.info(tmpdirname)
             with open(tmpdirname + "/" + self.model_name + ".h5", "wb") as my_blob:
                 blob_data = blob.download_blob()
                 blob_data.readinto(my_blob)
             model = load_model(tmpdirname + "/" + self.model_name + ".h5")
-        logging.info(datetime.now()-t1)
 
         # predict the future price
         future_price = self.predict(model, data)
@@ -170,7 +169,8 @@ class predictmodel():
                     ';PWD='+ os.environ.get('dbpassword')
         self.cnxn = pyodbc.connect(conn_str)       
         self.cursor = self.cnxn.cursor()
-        self.cursor.execute(f"Update Tickers Set Predicted_Inc={future_price},Model_Accuracy={accuracy_score},Modified_Date=GETDATE() Where Symbol = '{tkr}'")
+        current_time =datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S')
+        self.cursor.execute(f"Update Tickers Set Predicted_Inc={future_price},Model_Accuracy={accuracy_score},Modified_Date=CAST('{current_time}' as datetime) Where Symbol = '{tkr}'")
         self.cnxn.commit()
         self.cnxn.close()
 
@@ -211,7 +211,7 @@ class npanalysis():
         for tn,t in enumerate(self.tickers):
             self.daily_np[:,:,tn]=self.daily_df.loc[:,idx[:,t]].to_numpy(copy=True)
         np.nan_to_num(self.daily_np,copy=True)
-            
+        self.daily_df=self.daily_df.stack(level=1)
         self.y=self.daily_np.shape[0]
         self.x=self.daily_np.shape[1]
         self.z=self.daily_np.shape[2]
@@ -275,7 +275,7 @@ class npanalysis():
         return np.polyfit(range(period),scaled_data,deg=1)
 
     def createindicators(self):
-        
+        global tickers
         self.importdata()
         print('bollinger')
         Bollinger =self.bollinger()
@@ -304,19 +304,28 @@ class npanalysis():
         build_df = pd.DataFrame()
         for t,ticker in enumerate(tickers):
             try:
-                df = self.daily_df.loc[:,idx[:,ticker]]
+                df = self.daily_df.loc[idx[:,ticker],:]
             except:
+                tickers[t]=np.nan
                 continue
-            df.columns=df.columns.droplevel(1)
-            df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
+            df.reset_index(level=1,inplace=True)
+            
+            # df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
             df['date'] = df.index
-            df['hour'] = df['date'].dt.hour
-            df['dayofweek'] = df['date'].dt.dayofweek
-            df['quarter'] = df['date'].dt.quarter
-            df['month'] = df['date'].dt.month
-            df['year'] = df['date'].dt.year
-            df['dayofyear'] = df['date'].dt.dayofyear
-            df['dayofmonth'] = df['date'].dt.day
+            newcol=df['date'].dt.hour.tolist()
+            df['hour'] = newcol
+            newcol = df['date'].dt.dayofweek.tolist()
+            df['dayofweek'] = newcol
+            newcol = df['date'].dt.quarter.tolist()
+            df['quarter'] = newcol
+            newcol = df['date'].dt.month.tolist()
+            df['month'] =newcol
+            newcol = df['date'].dt.year.tolist()
+            df['year'] = newcol
+            newcol = df['date'].dt.dayofyear.tolist()
+            df['dayofyear'] = newcol
+            newcol = df['date'].dt.day.tolist()
+            df['dayofmonth'] = newcol
             # df.loc[True,'weekofyear'] = df['date'].dt.weekofyear
             df.drop('date',axis=1,inplace=True)
             df.loc[:,'SMA']=Bollinger[:,0,t]
@@ -344,7 +353,7 @@ def main(req: func.HttpRequest) -> None:
     global data_df
     ticker = req.params.get('name')
     tickers = ticker.split(',')
-
+    logging.info("""Function Start: {} EST""".format(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S')))
     alldf = npanalysis().createindicators()
     cnxn=pyodbc.connect(npanalysis().conn_str)
     cursor=cnxn.cursor()
@@ -353,6 +362,8 @@ def main(req: func.HttpRequest) -> None:
     ticker_detail.set_index('Symbol',inplace=True)
     cnxn.close()
     for tkr in tickers:
+        if tkr == np.nan:
+            continue
         data_df=alldf[alldf['Symbol']==tkr].copy()
         data_df.drop(['Symbol'],inplace=True,axis=1)
         future = 0
@@ -366,6 +377,7 @@ def main(req: func.HttpRequest) -> None:
         # except:
         #     logging.info(f'{tkr} Failed to Predict')
         #     continue
+        logging.info("""Function End: {} EST""".format(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S')))
     return
 
 global tkr

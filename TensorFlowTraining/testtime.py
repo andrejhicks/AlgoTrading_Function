@@ -17,7 +17,10 @@ from azure.storage.blob import BlobClient
 import concurrent.futures
 load_dotenv()
 # Window size or the sequence length
+EST=pytz.timezone('US/Eastern')
+print(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S'))
 
+exit()
 def deleteblobs(ticker):
     blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv")
     try:
@@ -72,7 +75,7 @@ print(d)
 exit()
 
 EST=pytz.timezone('US/Eastern')
-print(datetime.now(EST).strftime('%Y-%m-%d'))
+print(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S'))
 
 ticker='CVX'
 conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
