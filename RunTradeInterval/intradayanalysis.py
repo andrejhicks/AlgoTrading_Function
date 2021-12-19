@@ -24,7 +24,7 @@ class importmarketdata():
             ';DATABASE='+os.environ.get('database')+ \
                 ';UID='+os.environ.get('dbusername')+ \
                     ';PWD='+ os.environ.get('dbpassword')
-        # self.uri=self.credintials.logicappuri
+        
         starttime=datetime.strptime('09:00','%H:%M')
         tdelta=dt.timedelta(minutes=30)
         self.time_array=[]
