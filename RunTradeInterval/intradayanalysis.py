@@ -9,13 +9,9 @@ import concurrent.futures
 import math
 import os
 import pandas as pd
-import numpy as np
-from sklearn import preprocessing
 import pyodbc
 import requests
-from azure.storage.blob import BlobClient,BlobServiceClient
 load_dotenv()
-import tempfile
 import azure.functions as func
 
 passkey='prod'                   

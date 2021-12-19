@@ -18,8 +18,8 @@ from sklearn.model_selection import train_test_split
 from collections import deque
 import pyodbc
 from tensorflow import random as tf_random
-from tensorflow.keras.models import load_model,Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
+from tensorflow.keras.models import load_model
+from tensorflow.keras.layers import LSTM
 from azure.storage.blob import BlobClient
 from sklearn.metrics import accuracy_score
 try:
@@ -118,34 +118,6 @@ class predictmodel():
         # return the result
         return result
 
-    def create_model(self,sequence_length, units=256, cell=LSTM, n_layers=2, dropout=0.3,
-                loss="mean_absolute_error", optimizer="rmsprop", bidirectional=False):
-        model = Sequential()
-        for i in range(n_layers):
-            if i == 0:
-                # first layer
-                if bidirectional:
-                    model.add(Bidirectional(cell(units, return_sequences=True), input_shape=(None, sequence_length)))
-                else:
-                    model.add(cell(units, return_sequences=True, input_shape=(None, sequence_length)))
-            elif i == n_layers - 1:
-                # last layer
-                if bidirectional:
-                    model.add(Bidirectional(cell(units, return_sequences=False)))
-                else:
-                    model.add(cell(units, return_sequences=False))
-            else:
-                # hidden layers
-                if bidirectional:
-                    model.add(Bidirectional(cell(units, return_sequences=True)))
-                else:
-                    model.add(cell(units, return_sequences=True))
-            # add dropout after each layer
-            model.add(Dropout(dropout))
-        model.add(Dense(1, activation="linear"))
-        model.compile(loss=loss, metrics=["mean_absolute_error"], optimizer=optimizer)
-        return model
-
     def get_accuracy(self,model, data):
         y_test = data["y_test"]
         X_test = data["X_test"]
@@ -186,12 +158,7 @@ class predictmodel():
                 blob_data.readinto(my_blob)
             model = load_model(tmpdirname + "/" + self.model_name + ".h5")
         logging.info(datetime.now()-t1)
-        model.save_weights('testckpt{}.cpt'.format(tkr))
-        del model
-        model = self.create_model(self.params["N_STEPS"], loss=self.params["LOSS"], units=self.params["UNITS"], cell=CELL, n_layers=self.params["N_LAYERS"],
-                                    dropout=self.params["DROPOUT"], optimizer=self.params["OPTIMIZER"], bidirectional=self.params["BIDIRECTIONAL"])
-        model.load_weights('testckpt{}.cpt'.format(tkr))
-        
+
         # predict the future price
         future_price = self.predict(model, data)
         accuracy_score=self.get_accuracy(model, data)
@@ -334,7 +301,7 @@ class npanalysis():
             LinReg[self.y-s-1,c+2,:]=a[1]
         
         idx=pd.IndexSlice
-        self.df = pd.DataFrame()
+        build_df = pd.DataFrame()
         for t,ticker in enumerate(tickers):
             try:
                 df = self.daily_df.loc[:,idx[:,ticker]]
@@ -363,22 +330,21 @@ class npanalysis():
                 # df['LinRegInt'+str(interval)]=LinReg[:,col+2,t]
             df=df[df['SMA']!=0]
             df['Symbol']=ticker
-            self.df=pd.concat([self.df,df])
-            logging.info(self.df.head())
-        return self.df
+            build_df=pd.concat([build_df,df])
+        return build_df
 
-def test():# main(req: func.HttpRequest) -> None:
+def main(req: func.HttpRequest) -> None:
     global tickers
     global ticker_detail
     logging.info('Python HTTP trigger function processed a request.')
-    # hasdata = req.params.get('name')
-    # if not hasdata:
-    #     return 
+    hasdata = req.params.get('name')
+    if not hasdata:
+        return 
     global tkr
     global data_df
-    # ticker = req.params.get('name')
-    # tickers = ticker.split(',')
-    tickers=['A','AAPL']
+    ticker = req.params.get('name')
+    tickers = ticker.split(',')
+
     alldf = npanalysis().createindicators()
     cnxn=pyodbc.connect(npanalysis().conn_str)
     cursor=cnxn.cursor()
@@ -411,4 +377,4 @@ random.seed(314)
 CELL = LSTM
 
 tickers=[]
-test()
+# test()
