@@ -367,20 +367,18 @@ class npanalysis():
             logging.info(self.df.head())
         return self.df
 
-def main(req: func.HttpRequest) -> None:
+def test():# main(req: func.HttpRequest) -> None:
     global tickers
     global ticker_detail
     logging.info('Python HTTP trigger function processed a request.')
-    hasdata = req.params.get('name')
-    if not hasdata:
-        return 
+    # hasdata = req.params.get('name')
+    # if not hasdata:
+    #     return 
     global tkr
     global data_df
-    ticker = req.params.get('name')
-    tickers = ticker.split(',')
-    alldf = req.get_json()
-    logging.info(alldf)
-
+    # ticker = req.params.get('name')
+    # tickers = ticker.split(',')
+    tickers=['A','AAPL']
     alldf = npanalysis().createindicators()
     cnxn=pyodbc.connect(npanalysis().conn_str)
     cursor=cnxn.cursor()
@@ -413,4 +411,4 @@ random.seed(314)
 CELL = LSTM
 
 tickers=[]
-# test()
+test()
