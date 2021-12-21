@@ -234,7 +234,7 @@ def call_train_test(Uri_request):
     except:
         logging.info(f'Failed to Process Training {Uri_request[73:100]}')
 
-def create_model(newtickers=None):
+def create_model(newtickers):
     logging.info("Generating Models")
     conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
