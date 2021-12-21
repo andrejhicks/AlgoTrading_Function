@@ -37,6 +37,12 @@ class predictmodel():
         self.model_name = f"""{tkr}-{self.params["LOSS"]}-{self.params["OPTIMIZER"]}-{CELL.__name__}-seq-{self.params["N_STEPS"]}-step-{self.params["LOOKUP_STEP"]}-layers-{self.params["N_LAYERS"]}-units-{self.params["UNITS"]}"""
         self.data_df=data_df
         self.tkr = tkr
+        conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
+            ';DATABASE='+os.environ.get('database')+ \
+                ';UID='+os.environ.get('dbusername')+ \
+                    ';PWD='+ os.environ.get('dbpassword')
+        self.cnxn = pyodbc.connect(conn_str)       
+        self.cursor = self.cnxn.cursor()
     def load_data(self, n_steps=50, scale=True, shuffle=True,test_size=0.2):
         """
         Imports data from CSV file created in the intradayanalysis.py file and stored in blob storage. 
@@ -50,10 +56,9 @@ class predictmodel():
         global FEATURE_COLUMNS
         FEATURE_COLUMNS=[]
         for col in self.data_df.columns:
-            if col not in FEATURE_COLUMNS and col!='Ticker':
+            if col not in FEATURE_COLUMNS:
                 FEATURE_COLUMNS.append(col)
         df=self.data_df.copy()
-        df.drop('Ticker',axis=1,inplace=True)
         df.dropna(inplace=True,axis=0)
         # this will contain all the elements we want to return from this function
         result = {}
@@ -163,16 +168,9 @@ class predictmodel():
         accuracy_score=self.get_accuracy(model, data)
         
         # print(f"Future price after {LOOKUP_STEP} days is {future_price:.2f}$")
-        conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
-            ';DATABASE='+os.environ.get('database')+ \
-                ';UID='+os.environ.get('dbusername')+ \
-                    ';PWD='+ os.environ.get('dbpassword')
-        self.cnxn = pyodbc.connect(conn_str)       
-        self.cursor = self.cnxn.cursor()
         current_time =datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S')
         self.cursor.execute(f"Update Tickers Set Predicted_Inc={future_price},Model_Accuracy={accuracy_score},Modified_Date=CAST('{current_time}' as datetime) Where Symbol = '{tkr}'")
         self.cnxn.commit()
-        self.cnxn.close()
 
         return accuracy_score,future_price
 
@@ -193,6 +191,7 @@ class npanalysis():
         dataquery1 = [list(ele) for ele in self.cursor]
         self.cnxn.close()
         daily_df = pd.DataFrame(dataquery1,columns=['Ticker','Date','High','Low','Open','Close','Volume'])
+        daily_df.drop_duplicates(subset=['Date','Ticker'],inplace=True)
         daily_df['Date']=pd.to_datetime(daily_df['Date'])
         lastestdate = daily_df['Date'].max()
         recenttickers=daily_df.loc[daily_df['Date']==lastestdate,'Ticker'].tolist()
@@ -200,6 +199,7 @@ class npanalysis():
         daily_df['DateInt']=pd.to_numeric(daily_df['Date'].dt.strftime('%Y%m%d%H%M'))
         daily_df=daily_df.pivot(index='Date',columns='Ticker',values=['High','Low','Open','Close','Volume','DateInt'])
         daily_df.sort_index(inplace=True)
+        daily_df.interpolate(inplace=True)
         # Get all tickers in the daily_df dataframe in the correct order
         self.tickers=np.unique(daily_df['High'].columns.to_numpy(copy=True))
         rows=len(daily_df.index)
@@ -211,7 +211,7 @@ class npanalysis():
         for tn,t in enumerate(self.tickers):
             self.daily_np[:,:,tn]=self.daily_df.loc[:,idx[:,t]].to_numpy(copy=True)
         np.nan_to_num(self.daily_np,copy=True)
-        self.daily_df=self.daily_df.stack(level=1)
+
         self.y=self.daily_np.shape[0]
         self.x=self.daily_np.shape[1]
         self.z=self.daily_np.shape[2]
@@ -302,45 +302,52 @@ class npanalysis():
         
         idx=pd.IndexSlice
         build_df = pd.DataFrame()
+        # newcols = pd.MultiIndex(['SMA'])
+        # self.daily_df[['SMA','FisherTransform','RSI']]=np.nan
+        # for col,interval in enumerate(trends):
+        #     self.daily_df['LinRegSlope'+str(interval)]=np.nan
+
+
+        # self.daily_df.loc[True,'weekofyear'] = self.daily_df['date'].dt.weekofyear
+
         for t,ticker in enumerate(tickers):
-            try:
-                df = self.daily_df.loc[idx[:,ticker],:]
-            except:
-                tickers[t]=np.nan
-                continue
-            df.reset_index(level=1,inplace=True)
-            
-            # df.loc[df.index <= max(df.index)-dt.timedelta(days=10)]
-            df['date'] = df.index
-            newcol=df['date'].dt.hour.tolist()
-            df['hour'] = newcol
-            newcol = df['date'].dt.dayofweek.tolist()
-            df['dayofweek'] = newcol
-            newcol = df['date'].dt.quarter.tolist()
-            df['quarter'] = newcol
-            newcol = df['date'].dt.month.tolist()
-            df['month'] =newcol
-            newcol = df['date'].dt.year.tolist()
-            df['year'] = newcol
-            newcol = df['date'].dt.dayofyear.tolist()
-            df['dayofyear'] = newcol
-            newcol = df['date'].dt.day.tolist()
-            df['dayofmonth'] = newcol
-            # df.loc[True,'weekofyear'] = df['date'].dt.weekofyear
-            df.drop('date',axis=1,inplace=True)
-            df.loc[:,'SMA']=Bollinger[:,0,t]
+            self.daily_df.loc[:,idx['SMA',ticker]]=Bollinger[:,0,t]
             # df['PosStddev']=Bollinger[:,0,t]+Bollinger[:,1,t]*2
             # df['NegStddev']=Bollinger[:,0,t]-Bollinger[:,1,t]*2
-            df.loc[:,'FisherTransform']=Fisher_Transform[:,0,t]
-            df.loc[:,'RSI']=RSI[:,0,t]
+            self.daily_df.loc[:,idx['FisherTransform',ticker]]=Fisher_Transform[:,0,t]
+            self.daily_df.loc[:,idx['RSI',ticker]]=RSI[:,0,t]
             # df['FutureClose']=df['Close'].shift(-10)
             for col,interval in enumerate(trends):
-                df.loc[:,'LinRegSlope'+str(interval)]=LinReg[:,col,t]
+                self.daily_df.loc[:,idx['LinRegSlope'+str(interval),ticker]]=LinReg[:,col,t]
                 # df['LinRegInt'+str(interval)]=LinReg[:,col+2,t]
-            df=df[df['SMA']!=0]
-            df['Symbol']=ticker
-            build_df=pd.concat([build_df,df])
-        return build_df
+            # self.daily_df=self.daily_df[self.daily_df['SMA']!=0]
+            # df['Symbol']=ticker
+            # build_df=pd.concat([build_df,df])
+        print(Fisher_Transform)
+        dte = self.daily_df.index
+        self.daily_df=self.daily_df.stack(level=1)
+        date_df=pd.DataFrame(dte.to_list())
+        print(date_df)
+        newcol=date_df[0].dt.hour.tolist()
+        date_df['hour'] = newcol
+        newcol = date_df[0].dt.dayofweek.tolist()
+        date_df['dayofweek'] = newcol
+        newcol = date_df[0].dt.quarter.tolist()
+        date_df['quarter'] = newcol
+        newcol = date_df[0].dt.month.tolist()
+        date_df['month'] =newcol
+        newcol = date_df[0].dt.year.tolist()
+        date_df['year'] = newcol
+        newcol = date_df[0].dt.dayofyear.tolist()
+        date_df['dayofyear'] = newcol
+        newcol = date_df[0].dt.day.tolist()
+        date_df['dayofmonth'] = newcol
+        date_df.rename(columns = {0:'Date'},inplace=True)
+        date_df.set_index('Date',inplace=True)
+
+        self.daily_df=self.daily_df.join(date_df)
+        print(self.daily_df.tail(20))
+        return self.daily_df.reset_index()
 
 def main(req: func.HttpRequest) -> None:
     global tickers
@@ -364,8 +371,8 @@ def main(req: func.HttpRequest) -> None:
     for tkr in tickers:
         if tkr == np.nan:
             continue
-        data_df=alldf[alldf['Symbol']==tkr].copy()
-        data_df.drop(['Symbol'],inplace=True,axis=1)
+        data_df=alldf[alldf['Ticker']==tkr].copy()
+        data_df.drop(['Ticker'],inplace=True,axis=1)
         future = 0
         logging.info(f'Symbol:{tkr}')
 
@@ -378,6 +385,7 @@ def main(req: func.HttpRequest) -> None:
         #     logging.info(f'{tkr} Failed to Predict')
         #     continue
         logging.info("""Function End: {} EST""".format(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S')))
+    pred.cnxn.close()
     return
 
 global tkr
@@ -388,5 +396,3 @@ tf_random.set_seed(314)
 random.seed(314)
 CELL = LSTM
 
-tickers=[]
-# test()

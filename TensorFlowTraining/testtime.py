@@ -20,19 +20,30 @@ load_dotenv()
 EST=pytz.timezone('US/Eastern')
 print(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S'))
 
-exit()
-def deleteblobs(ticker):
-    blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv")
-    try:
-        blob.delete_blob() 
-        print('Delete ' +ticker)
-    except:
-        print('No ' +ticker)
+
+# def deleteblobs(ticker):
+#     blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name=ticker + ".csv")
+#     try:
+#         blob.delete_blob() 
+#         print('Delete ' +ticker)
+#     except:
+#         print('No ' +ticker)
 
 conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
     ';DATABASE='+os.environ.get('database')+ \
         ';UID='+os.environ.get('dbusername')+ \
             ';PWD='+ os.environ.get('dbpassword')
+cnxn = pyodbc.connect(conn_str)       
+cursor = cnxn.cursor()
+query = "Select Distinct Ticker, DateIndex, High, Low, Open_, Close_, Volume From HourData Where DateIndex>DateAdd(Month,-6,GetDate())"# and Ticker in ('{}')".format("','".join(tickers))
+cursor.execute(query)
+dataquery1 = [list(ele) for ele in cursor]
+cnxn.close()
+daily_df = pd.DataFrame(dataquery1,columns=['Ticker','Date','High','Low','Open','Close','Volume'])
+daily_df.drop_duplicates(subset=['Date','Ticker'],inplace=True)
+print(pd.unique(daily_df['Ticker']))
+
+exit()
 # uri=credintials.logicappuri
 starttime=datetime.strptime('09:00','%H:%M')
 tdelta=dt.timedelta(minutes=30)

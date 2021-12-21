@@ -223,7 +223,7 @@ class importmarketdata():
             if passkey=='prod':
                 self.cnxn.commit()
             
-        return #tickerdata
+        return pd.unique(tickerdf['Ticker'])
 
 #Function to handle concurrent calls to training function
 def call_train_test(Uri_request):
@@ -234,7 +234,7 @@ def call_train_test(Uri_request):
     except:
         logging.info(f'Failed to Process Training {Uri_request[73:100]}')
 
-def create_model():
+def create_model(newtickers=None):
     logging.info("Generating Models")
     conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
@@ -249,9 +249,6 @@ def create_model():
             retry+=1
             continue  
     cursor = cnxn.cursor()
-
-    cursor.execute("""Select Distinct Ticker From HourData Where DateIndex>DateAdd(Day,-20,GetDate())""")
-    tickers = [t[0] for t in cursor]
     traintickers = ''
     testtickers = ''
 
@@ -260,7 +257,7 @@ def create_model():
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
     functioncalls=[]
-    cursor.execute(f"Select Symbol,Trained_Date,trained_filename From Tickers Where Model_Accuracy>0.6")
+    cursor.execute("Select Symbol,Trained_Date,trained_filename From Tickers Where Model_Accuracy>0.6 and Symbol in ('{}')".format("','".split(newtickers)))
     trainedmodels = [list(ele) for ele in cursor]
     trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename'])
     trainedmodels.set_index('Ticker',inplace=True)
@@ -312,14 +309,14 @@ def main(mytimer: func.TimerRequest) -> None:
     if requests.get('https://cloud.iexapis.com/stable/stock/twtr/quote?token={}'.format(os.environ.get("IEXProdKey"))).json()['isUSMarketOpen'] or (hour==15 and min < 25):
         dd=importmarketdata()
         logging.info("Updating Data")
-        dd.update_intraday_iex()
+        newtickers=dd.update_intraday_iex()
         logging.info("Finished Update, Moving to Models")
-        create_model()
+        create_model(newtickers)
     else:
         print('Market Closed')
-
+    
     #Wait before executing trades
-    time.sleep(60000)
+    time.sleep(60)
     dd.cursor.execute("Select UserKey From TradeServiceUsers Where Active = 1")
     users=[list(ele)[0] for ele in dd.cursor]
     funcurl = os.environ.get('TradeFunctionUrl') 
