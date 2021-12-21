@@ -257,7 +257,7 @@ def create_model(newtickers):
     funcurl = os.environ.get('FunctionURL')
     funckey = os.environ.get('FunctionKey')
     functioncalls=[]
-    cursor.execute("Select Symbol,Trained_Date,trained_filename From Tickers Where Model_Accuracy>0.6 and Symbol in ('{}')".format("','".split(newtickers)))
+    cursor.execute("Select Symbol,Trained_Date,trained_filename From Tickers Where Model_Accuracy>0.6 and Symbol in ('{}')".format("','".join(newtickers)))
     trainedmodels = [list(ele) for ele in cursor]
     trainedmodels = pd.DataFrame(trainedmodels,columns=['Ticker','Trained_Date','Filename'])
     trainedmodels.set_index('Ticker',inplace=True)
