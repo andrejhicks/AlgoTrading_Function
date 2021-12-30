@@ -174,7 +174,17 @@ class buildmodel():
                     if blob.exists():
                         blob.delete_blob()
                     blob.upload_blob(modeldatabytes)
-
+        trainingparams = "{" + f""""N_STEPS" : {N_STEPS} 
+                    , "LOOKUP_STEP" : {LOOKUP_STEP}
+                    , "TEST_SIZE" : {TEST_SIZE}
+                    , "N_LAYERS" : {N_LAYERS}
+                    , "UNITS" : {UNITS}
+                    , "DROPOUT" : {DROPOUT}
+                    , "BIDIRECTIONAL" : "False"
+                    , "LOSS" : "{LOSS}"
+                    , "OPTIMIZER" : "{OPTIMIZER}"
+                    , "BATCH_SIZE" : {BATCH_SIZE}
+                    , "EPOCHS" : {EPOCHS}""" + "}"
         conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
                 ';UID='+os.environ.get('dbusername')+ \
@@ -182,7 +192,7 @@ class buildmodel():
         self.cnxn = pyodbc.connect(conn_str)       
         self.cursor = self.cnxn.cursor()
         currentdate=datetime.now(EST).strftime('%Y-%m-%d')
-        qs=f"Update Tickers Set Trained_Date='{currentdate}',trained_filename='{self.model_name}' Where Symbol = '{tkr}'"
+        qs=f"Update Tickers Set Trained_Date='{currentdate}',trained_filename='{self.model_name}', TrainingParams = '{trainingparams}'  Where Symbol = '{tkr}'"
         self.cursor.execute(qs)
         self.cnxn.commit()
         self.cnxn.close()
@@ -246,6 +256,8 @@ class predictmodel():
         # predict the future price
         future_price = self.predict(model, data)
         accuracy_score=self.get_accuracy(model, data)
+
+
         # print(f"Future price after {LOOKUP_STEP} days is {future_price:.2f}$")
         conn_str='DRIVER={ODBC Driver 17 for SQL Server};SERVER='+os.environ.get('server')+ \
             ';DATABASE='+os.environ.get('database')+ \
