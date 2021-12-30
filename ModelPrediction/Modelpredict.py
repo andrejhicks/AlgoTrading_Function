@@ -378,7 +378,11 @@ def main(req: func.HttpRequest) -> None:
 
         # try:
         pred=predictmodel(tkr,data_df)
-        accuracy,future = pred.testmodel()
+        try:
+            accuracy,future = pred.testmodel()
+        except:
+            cursor.execute(f"""Update Tickers Set Failures = 1 + (Select Failures From Tickers Where Symbol='{tkr}')  Where Symbol = '{tkr}'""")
+            continue
         logging.info(str(accuracy) + ' ' + str(future))
         print(str(accuracy) + ' ' + str(future))
         # except:
