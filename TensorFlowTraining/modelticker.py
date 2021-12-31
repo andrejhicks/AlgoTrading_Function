@@ -174,6 +174,14 @@ class buildmodel():
                     if blob.exists():
                         blob.delete_blob()
                     blob.upload_blob(modeldatabytes)
+                    
+                #Save weights only as a reduced file    
+                model.save_weights(tmpdirname+"/" + self.model_name + "weights")
+                blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name="Tensorflow_Lite"+"/"+self.model_name)
+                with open(tmpdirname + "/" + self.model_name + "weights", "rb") as modeldatabytes:
+                    if blob.exists():
+                        blob.delete_blob()
+                    blob.upload_blob(modeldatabytes)
         trainingparams = "{" + f""""N_STEPS" : {N_STEPS} 
                     , "LOOKUP_STEP" : {LOOKUP_STEP}
                     , "TEST_SIZE" : {TEST_SIZE}

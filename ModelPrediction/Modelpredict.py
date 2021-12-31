@@ -151,17 +151,25 @@ class predictmodel():
 
     def testmodel(self):
         # load the data
-
+        global model
         data = self.load_data(n_steps=self.params["N_STEPS"], test_size=self.params["TEST_SIZE"],
                         shuffle=False)
-
-        blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name="results"+"/"+self.model_name + ".h5")
-        t1 = datetime.now()
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            with open(tmpdirname + "/" + self.model_name + ".h5", "wb") as my_blob:
-                blob_data = blob.download_blob()
-                blob_data.readinto(my_blob)
-            model = load_model(tmpdirname + "/" + self.model_name + ".h5")
+        try:  
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name="Tensorflow_Lite"+"/"+self.model_name)
+                with open(tmpdirname + "/" + self.model_name + ".h5", "wb") as my_blob:
+                    blob_data = blob.download_blob()
+                    blob_data.readinto(my_blob)
+                print(f"Loaded Blob for {tkr}")
+                model.load_weights(tmpdirname + "/" + self.model_name + ".h5")
+        except:
+            blob = BlobClient.from_connection_string(conn_str=os.environ.get('blob_conn_str'), container_name="tensorflow", blob_name="results"+"/"+self.model_name + ".h5")
+            t1 = datetime.now()
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                with open(tmpdirname + "/" + self.model_name + ".h5", "wb") as my_blob:
+                    blob_data = blob.download_blob()
+                    blob_data.readinto(my_blob)
+                model = load_model(tmpdirname + "/" + self.model_name + ".h5")
 
         # predict the future price
         future_price = self.predict(model, data)
@@ -358,6 +366,7 @@ def main(req: func.HttpRequest) -> None:
         return 
     global tkr
     global data_df
+    global model
     ticker = req.params.get('name')
     tickers = ticker.split(',')
     logging.info("""Function Start: {} EST""".format(datetime.now(EST).strftime('%Y-%m-%d %H:%M:%S')))
@@ -382,6 +391,7 @@ def main(req: func.HttpRequest) -> None:
             accuracy,future = pred.testmodel()
         except:
             cursor.execute(f"""Update Tickers Set Failures = 1 + (Select Failures From Tickers Where Symbol='{tkr}')  Where Symbol = '{tkr}'""")
+            del model
             continue
         logging.info(str(accuracy) + ' ' + str(future))
         print(str(accuracy) + ' ' + str(future))
